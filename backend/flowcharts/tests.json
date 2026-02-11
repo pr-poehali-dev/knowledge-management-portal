@@ -1,0 +1,22 @@
+{
+  "tests": [
+    {
+      "name": "Create flowchart",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "document_id": 1,
+        "version": "1.0",
+        "flowchart_data": {
+          "nodes": [],
+          "edges": []
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "success": true
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

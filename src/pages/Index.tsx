@@ -1,61 +1,68 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
 import Icon from '@/components/ui/icon';
+import FlowchartEditor from '@/components/FlowchartEditor';
+
+const DOCUMENTS_API = 'https://functions.poehali.dev/8ed7141d-b310-44c7-925b-e846ed249265';
+
+interface Document {
+  id: number;
+  title: string;
+  description?: string;
+  author: string;
+  version: string;
+  status: string;
+  tags?: string[];
+  created_at?: string;
+  updated_at?: string;
+  department?: { code: string; name: string };
+  type?: { code: string; name: string };
+}
 
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSection, setActiveSection] = useState('all');
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [flowchartDialogOpen, setFlowchartDialogOpen] = useState(false);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [selectedAction, setSelectedAction] = useState('');
+
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    department: '',
+    type: '',
+    author: ''
+  });
 
   const departments = [
-    { id: 'tech', name: 'Технический отдел', icon: 'Server', count: 127, color: 'bg-blue-500' },
-    { id: 'docs', name: 'Делопроизводство', icon: 'FileText', count: 89, color: 'bg-green-500' },
-    { id: 'legal', name: 'Юридическая служба', icon: 'Scale', count: 64, color: 'bg-purple-500' },
-    { id: 'procurement', name: 'Закупочная служба', icon: 'ShoppingCart', count: 52, color: 'bg-orange-500' },
-    { id: 'projects', name: 'Управление проектами', icon: 'FolderKanban', count: 98, color: 'bg-cyan-500' },
+    { id: 'tech', name: 'Технический отдел', icon: 'Server', count: 0, color: 'bg-blue-500' },
+    { id: 'docs', name: 'Делопроизводство', icon: 'FileText', count: 0, color: 'bg-green-500' },
+    { id: 'legal', name: 'Юридическая служба', icon: 'Scale', count: 0, color: 'bg-purple-500' },
+    { id: 'procurement', name: 'Закупочная служба', icon: 'ShoppingCart', count: 0, color: 'bg-orange-500' },
+    { id: 'projects', name: 'Управление проектами', icon: 'FolderKanban', count: 0, color: 'bg-cyan-500' },
   ];
 
-  const recentDocuments = [
-    {
-      id: 1,
-      title: 'Инструкция по развертыванию информационной системы',
-      department: 'tech',
-      type: 'instruction',
-      updated: '2 часа назад',
-      author: 'Иванов А.П.',
-      version: '2.1'
-    },
-    {
-      id: 2,
-      title: 'Регламент согласования договоров',
-      department: 'legal',
-      type: 'process',
-      updated: '5 часов назад',
-      author: 'Петрова М.И.',
-      version: '1.3'
-    },
-    {
-      id: 3,
-      title: 'Блок-схема процесса закупки оборудования',
-      department: 'procurement',
-      type: 'flowchart',
-      updated: 'вчера',
-      author: 'Сидоров В.К.',
-      version: '3.0'
-    },
-    {
-      id: 4,
-      title: 'Шаблон технического задания для ИС',
-      department: 'projects',
-      type: 'template',
-      updated: '2 дня назад',
-      author: 'Кузнецова Л.Н.',
-      version: '1.0'
-    },
+  const documentTypes = [
+    { code: 'instruction', name: 'Инструкция' },
+    { code: 'process', name: 'Процесс' },
+    { code: 'flowchart', name: 'Блок-схема' },
+    { code: 'template', name: 'Шаблон' },
+    { code: 'regulation', name: 'Регламент' },
+    { code: 'guide', name: 'Руководство' },
   ];
 
   const quickActions = [
@@ -65,18 +72,158 @@ const Index = () => {
     { label: 'Новый процесс', icon: 'Workflow', action: 'create-process' },
   ];
 
-  const getTypeLabel = (type: string) => {
-    const types: Record<string, string> = {
-      instruction: 'Инструкция',
-      process: 'Процесс',
-      flowchart: 'Блок-схема',
-      template: 'Шаблон',
-    };
-    return types[type] || type;
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
+
+  useEffect(() => {
+    filterDocuments();
+  }, [searchQuery, activeSection, documents]);
+
+  const fetchDocuments = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(DOCUMENTS_API);
+      const data = await response.json();
+      setDocuments(data.documents || []);
+    } catch (error) {
+      toast.error('Ошибка загрузки документов');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getDepartmentName = (id: string) => {
-    return departments.find(d => d.id === id)?.name || '';
+  const filterDocuments = () => {
+    let filtered = documents;
+
+    if (searchQuery) {
+      filtered = filtered.filter(doc =>
+        doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        doc.description?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    if (activeSection !== 'all') {
+      filtered = filtered.filter(doc => doc.department?.code === activeSection);
+    }
+
+    setFilteredDocuments(filtered);
+  };
+
+  const handleQuickAction = (action: string) => {
+    setSelectedAction(action);
+    if (action === 'create-flowchart') {
+      setFlowchartDialogOpen(true);
+    } else if (action === 'upload-doc') {
+      setUploadDialogOpen(true);
+    } else if (action === 'create-instruction' || action === 'create-process') {
+      setFormData({
+        ...formData,
+        type: action === 'create-instruction' ? 'instruction' : 'process'
+      });
+      setCreateDialogOpen(true);
+    }
+  };
+
+  const handleCreateDocument = async () => {
+    try {
+      const response = await fetch(DOCUMENTS_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          ...formData
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast.success('Документ успешно создан');
+        setCreateDialogOpen(false);
+        setFormData({ title: '', description: '', department: '', type: '', author: '' });
+        fetchDocuments();
+      }
+    } catch (error) {
+      toast.error('Ошибка создания документа');
+      console.error(error);
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const base64 = e.target?.result?.toString().split(',')[1];
+      
+      try {
+        const response = await fetch(DOCUMENTS_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'upload',
+            ...formData,
+            file_data: base64,
+            file_name: file.name,
+            file_type: file.type
+          })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          toast.success('Файл успешно загружен');
+          setUploadDialogOpen(false);
+          setFormData({ title: '', description: '', department: '', type: '', author: '' });
+          fetchDocuments();
+        }
+      } catch (error) {
+        toast.error('Ошибка загрузки файла');
+        console.error(error);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const getTypeLabel = (type: string) => {
+    return documentTypes.find(t => t.code === type)?.name || type;
+  };
+
+  const getDepartmentName = (code: string) => {
+    return departments.find(d => d.id === code)?.name || '';
+  };
+
+  const getDocumentStats = () => {
+    const stats = {
+      total: documents.length,
+      instructions: documents.filter(d => d.type?.code === 'instruction').length,
+      flowcharts: documents.filter(d => d.type?.code === 'flowchart').length,
+      processes: documents.filter(d => d.type?.code === 'process').length,
+    };
+    return stats;
+  };
+
+  const stats = getDocumentStats();
+
+  const updatedDepartments = departments.map(dept => ({
+    ...dept,
+    count: documents.filter(d => d.department?.code === dept.id).length
+  }));
+
+  const getTimeAgo = (dateString?: string) => {
+    if (!dateString) return 'недавно';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffHours < 1) return 'только что';
+    if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'час' : 'часа'} назад`;
+    if (diffDays === 1) return 'вчера';
+    if (diffDays < 7) return `${diffDays} дня назад`;
+    return date.toLocaleDateString('ru-RU');
   };
 
   return (
@@ -111,7 +258,7 @@ const Index = () => {
               </h3>
             </div>
 
-            {departments.map((dept) => (
+            {updatedDepartments.map((dept) => (
               <Button
                 key={dept.id}
                 variant={activeSection === dept.id ? 'secondary' : 'ghost'}
@@ -184,7 +331,11 @@ const Index = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {quickActions.map((action) => (
-              <Card key={action.action} className="hover:shadow-md transition-shadow cursor-pointer">
+              <Card 
+                key={action.action} 
+                className="hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => handleQuickAction(action.action)}
+              >
                 <CardContent className="pt-6 pb-6 flex items-center gap-4">
                   <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
                     <Icon name={action.icon} size={24} className="text-primary" />
@@ -200,38 +351,53 @@ const Index = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle>Недавние документы</CardTitle>
-                <CardDescription>Последние обновления в системе</CardDescription>
+                <CardTitle>
+                  {activeSection === 'all' ? 'Все документы' : getDepartmentName(activeSection)}
+                </CardTitle>
+                <CardDescription>
+                  {searchQuery ? `Результаты поиска: "${searchQuery}"` : 'Последние обновления в системе'}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {recentDocuments.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="flex items-start gap-4 p-4 rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer"
-                    >
-                      <div className="h-10 w-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <Icon name="FileText" size={20} className="text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-sm mb-1 truncate">{doc.title}</h4>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                          <Badge variant="outline" className="text-xs">
-                            {getTypeLabel(doc.type)}
-                          </Badge>
-                          <span>{getDepartmentName(doc.department)}</span>
-                          <span>•</span>
-                          <span>v{doc.version}</span>
-                          <span>•</span>
-                          <span>{doc.author}</span>
+                {loading ? (
+                  <div className="text-center py-8 text-muted-foreground">Загрузка...</div>
+                ) : filteredDocuments.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">Документы не найдены</div>
+                ) : (
+                  <div className="space-y-4">
+                    {filteredDocuments.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="flex items-start gap-4 p-4 rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer"
+                      >
+                        <div className="h-10 w-10 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <Icon name="FileText" size={20} className="text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-sm mb-1 truncate">{doc.title}</h4>
+                          {doc.description && (
+                            <p className="text-xs text-muted-foreground mb-2">{doc.description}</p>
+                          )}
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                            {doc.type && (
+                              <Badge variant="outline" className="text-xs">
+                                {doc.type.name}
+                              </Badge>
+                            )}
+                            {doc.department && <span>{doc.department.name}</span>}
+                            <span>•</span>
+                            <span>v{doc.version}</span>
+                            <span>•</span>
+                            <span>{doc.author}</span>
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground whitespace-nowrap">
+                          {getTimeAgo(doc.updated_at)}
                         </div>
                       </div>
-                      <div className="text-xs text-muted-foreground whitespace-nowrap">
-                        {doc.updated}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -244,19 +410,19 @@ const Index = () => {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Всего документов</span>
-                      <span className="font-semibold">430</span>
+                      <span className="font-semibold">{stats.total}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Инструкций</span>
-                      <span className="font-semibold">156</span>
+                      <span className="font-semibold">{stats.instructions}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Блок-схем</span>
-                      <span className="font-semibold">89</span>
+                      <span className="font-semibold">{stats.flowcharts}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Процессов</span>
-                      <span className="font-semibold">185</span>
+                      <span className="font-semibold">{stats.processes}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -294,10 +460,10 @@ const Index = () => {
               <CardDescription>Навигация по структуре компании</CardDescription>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue="all" className="w-full">
+              <Tabs defaultValue="all" className="w-full" value={activeSection} onValueChange={setActiveSection}>
                 <TabsList className="grid w-full grid-cols-6">
                   <TabsTrigger value="all">Все</TabsTrigger>
-                  {departments.map((dept) => (
+                  {updatedDepartments.map((dept) => (
                     <TabsTrigger key={dept.id} value={dept.id}>
                       {dept.name.split(' ')[0]}
                     </TabsTrigger>
@@ -306,7 +472,7 @@ const Index = () => {
 
                 <TabsContent value="all" className="space-y-4 mt-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {departments.map((dept) => (
+                    {updatedDepartments.map((dept) => (
                       <Card key={dept.id} className="hover:shadow-md transition-shadow cursor-pointer">
                         <CardContent className="pt-6">
                           <div className="flex items-start gap-4">
@@ -318,7 +484,12 @@ const Index = () => {
                               <p className="text-sm text-muted-foreground mb-3">
                                 {dept.count} документов
                               </p>
-                              <Button variant="outline" size="sm" className="w-full">
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="w-full"
+                                onClick={() => setActiveSection(dept.id)}
+                              >
                                 Открыть раздел
                               </Button>
                             </div>
@@ -329,7 +500,7 @@ const Index = () => {
                   </div>
                 </TabsContent>
 
-                {departments.map((dept) => (
+                {updatedDepartments.map((dept) => (
                   <TabsContent key={dept.id} value={dept.id} className="space-y-4 mt-6">
                     <Card>
                       <CardContent className="pt-6">
@@ -346,19 +517,19 @@ const Index = () => {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="p-4 rounded-lg border">
                             <div className="text-3xl font-bold text-primary mb-1">
-                              {Math.floor(dept.count * 0.4)}
+                              {documents.filter(d => d.department?.code === dept.id && d.type?.code === 'instruction').length}
                             </div>
                             <p className="text-sm text-muted-foreground">Инструкции</p>
                           </div>
                           <div className="p-4 rounded-lg border">
                             <div className="text-3xl font-bold text-primary mb-1">
-                              {Math.floor(dept.count * 0.3)}
+                              {documents.filter(d => d.department?.code === dept.id && d.type?.code === 'process').length}
                             </div>
                             <p className="text-sm text-muted-foreground">Процессы</p>
                           </div>
                           <div className="p-4 rounded-lg border">
                             <div className="text-3xl font-bold text-primary mb-1">
-                              {Math.floor(dept.count * 0.3)}
+                              {documents.filter(d => d.department?.code === dept.id && d.type?.code === 'flowchart').length}
                             </div>
                             <p className="text-sm text-muted-foreground">Блок-схемы</p>
                           </div>
@@ -372,6 +543,159 @@ const Index = () => {
           </Card>
         </div>
       </main>
+
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Создать новый документ</DialogTitle>
+            <DialogDescription>
+              Заполните информацию о документе
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="title">Название</Label>
+              <Input
+                id="title"
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="Введите название документа"
+              />
+            </div>
+            <div>
+              <Label htmlFor="description">Описание</Label>
+              <Textarea
+                id="description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Краткое описание"
+              />
+            </div>
+            <div>
+              <Label htmlFor="department">Отдел</Label>
+              <Select value={formData.department} onValueChange={(value) => setFormData({ ...formData, department: value })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите отдел" />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="type">Тип документа</Label>
+              <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите тип" />
+                </SelectTrigger>
+                <SelectContent>
+                  {documentTypes.map((type) => (
+                    <SelectItem key={type.code} value={type.code}>{type.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="author">Автор</Label>
+              <Input
+                id="author"
+                value={formData.author}
+                onChange={(e) => setFormData({ ...formData, author: e.target.value })}
+                placeholder="ФИО автора"
+              />
+            </div>
+            <Button onClick={handleCreateDocument} className="w-full">Создать документ</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Загрузить документ</DialogTitle>
+            <DialogDescription>
+              Загрузите файл и заполните метаданные
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="title-upload">Название</Label>
+              <Input
+                id="title-upload"
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="Введите название документа"
+              />
+            </div>
+            <div>
+              <Label htmlFor="description-upload">Описание</Label>
+              <Textarea
+                id="description-upload"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Краткое описание"
+              />
+            </div>
+            <div>
+              <Label htmlFor="department-upload">Отдел</Label>
+              <Select value={formData.department} onValueChange={(value) => setFormData({ ...formData, department: value })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите отдел" />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="type-upload">Тип документа</Label>
+              <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Выберите тип" />
+                </SelectTrigger>
+                <SelectContent>
+                  {documentTypes.map((type) => (
+                    <SelectItem key={type.code} value={type.code}>{type.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="author-upload">Автор</Label>
+              <Input
+                id="author-upload"
+                value={formData.author}
+                onChange={(e) => setFormData({ ...formData, author: e.target.value })}
+                placeholder="ФИО автора"
+              />
+            </div>
+            <div>
+              <Label htmlFor="file">Файл</Label>
+              <Input
+                id="file"
+                type="file"
+                onChange={handleFileUpload}
+              />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={flowchartDialogOpen} onOpenChange={setFlowchartDialogOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle>Редактор блок-схем</DialogTitle>
+            <DialogDescription>
+              Создайте визуальную блок-схему процесса
+            </DialogDescription>
+          </DialogHeader>
+          <FlowchartEditor />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
